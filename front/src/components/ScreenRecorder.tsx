@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import ToggleSwitch from "./ToggleSwitch";
 
 const ScreenRecorder: React.FC = () => {
@@ -13,6 +13,68 @@ const ScreenRecorder: React.FC = () => {
   const [fps, setFps] = useState<number>(30);
   const [resolution, setResolution] = useState<string>("1920x1080");
   const [bitrate, setBitrate] = useState<number>(6000000);
+
+  const [zoomPoints, setZoomPoints] = useState<
+    {
+      x: number;
+      y: number;
+      startTime: number;
+      endTime: number;
+      startZoom: number;
+      endZoom: number;
+    }[]
+  >([]);
+  const [isZooming, setIsZooming] = useState(false);
+  const zoomStartTime = useRef<number | null>(null);
+
+  const handleVideoMouseDown = useCallback(
+    (event: React.MouseEvent<HTMLVideoElement>) => {
+      if (!screenRecording.current) return;
+
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      const time = screenRecording.current.currentTime;
+
+      setIsZooming(true);
+      zoomStartTime.current = time;
+      setZoomPoints((prev) => [
+        ...prev,
+        {
+          x,
+          y,
+          startTime: time,
+          endTime: time, // Sera mis à jour dans handleVideoMouseUp
+          startZoom: 1,
+          endZoom: 1.5, // Vous pouvez ajuster cette valeur
+        },
+      ]);
+    },
+    []
+  );
+
+  const handleVideoMouseUp = useCallback(() => {
+    if (
+      !screenRecording.current ||
+      !isZooming ||
+      zoomStartTime.current === null
+    )
+      return;
+
+    const endTime = screenRecording.current.currentTime;
+
+    setZoomPoints((prev) => {
+      const updatedPoints = [...prev];
+      const lastPoint = updatedPoints[updatedPoints.length - 1];
+      if (lastPoint) {
+        lastPoint.endTime = endTime;
+      }
+      return updatedPoints;
+    });
+
+    setIsZooming(false);
+    zoomStartTime.current = null;
+  }, [isZooming]);
 
   const startScreenRecording = async () => {
     const [width, height] = resolution.split("x").map(Number);
@@ -76,6 +138,7 @@ const ScreenRecorder: React.FC = () => {
         const blob = await response.blob();
         const formData = new FormData();
         formData.append("video", blob, "screen_recording.webm");
+        formData.append("zoomPoints", JSON.stringify(zoomPoints));
         const editResponse = await fetch("http://127.0.0.1:5000/edit_video", {
           method: "POST",
           body: formData,
@@ -173,7 +236,16 @@ const ScreenRecorder: React.FC = () => {
           {editedVideoUrl && (
             <h2 className="text-xl font-semibold mb-2">Vidéo original :</h2>
           )}
-          <video ref={screenRecording} height={300} width={600} controls />
+          <video
+            ref={screenRecording}
+            height={300}
+            width={600}
+            controls
+            onMouseDown={handleVideoMouseDown}
+            onMouseUp={handleVideoMouseUp}
+            onMouseLeave={handleVideoMouseUp}
+          />
+          <p>Cliquez sur la vidéo pour ajouter des points de zoom</p>
         </div>
         <div className="mb-4">
           <button
